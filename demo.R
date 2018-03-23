@@ -5,7 +5,7 @@ n <- 1000
 ix <- (runif(n) < 0.5)
 y <- rep(NA, n)
 y[ix] <- rnorm(sum(ix), -4, 1)
-y[!ix] <- rgpd(sum(!ix), shape = 0.5)
+y[!ix] <- 4 + 2 * rt(sum(!ix), df = 3.0)
 
 o <- sbde(y, nknots = 11, nsamp = 1000, thin = 30) 
 summary(o, more = TRUE)
