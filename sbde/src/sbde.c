@@ -69,11 +69,14 @@ double f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 0);
-        break;
+            val = 2.0 * dt(x * qt(0.95, nu, 1, 0), nu, 0) * qt(0.95, nu, 1, 0);
+            break;
+        case 3:
+            val = dunif(x, -1.0, 1.0, 0);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 0) * qt(0.9, nu, 1, 0);
-        break;
+            val = dt(x * qt(0.9, nu, 1, 0), nu, 0) * qt(0.9, nu, 1, 0);
+            break;
     }
     return val;
 }
@@ -82,11 +85,14 @@ double log_f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 1);
-        break;
+            val = log(2.0) + dt(x * qt(0.95, nu, 1, 0), nu, 1) + log(qt(0.95, nu, 1, 0));
+            break;
+        case 3:
+            val = dunif(x, -1.0, 1.0, 1);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 1) + log(qt(0.9, nu, 1, 0));
-        break;
+            val = dt(x * qt(0.9, nu, 1, 0), nu, 1) + log(qt(0.9, nu, 1, 0));
+            break;
     }
     return val;
 }
@@ -95,6 +101,9 @@ double F0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
+            val = 2.0 * (pt(x * qt(0.95, nu, 1, 0), nu, 1, 0) - 0.5);
+            break;
+        case 3:
             val = punif(x, -1.0, 1.0, 1, 0);
             break;
         default:

@@ -11,7 +11,7 @@ sbde(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)),
     hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)),
     prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3,
     blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S,
-    fix.nu = FALSE, fbase = c("t", "unif"), verbose = TRUE)
+    fix.nu = FALSE, fbase = c("t", "t+", "unif"), verbose = TRUE)
 
 
 \method{update}{sbde}(object, nadd, append = TRUE, ...)
