@@ -65,6 +65,19 @@ double nuFn_inv(double nu) {
 	return 2.0*log((nu - 0.5)/5.5);
 }
 
+double dgpd(double x, double nu, int in_log){
+    double val = -(nu + 1.0) * log1p(x/nu);
+    if(!in_log) val = exp(val);
+    return val;
+}
+double pgpd(double x, double nu){
+    return 1.0 - exp(-nu * log1p(x/nu));
+}
+double qgpd(double p, double nu){
+    return nu * expm1(-log1p(-p)/nu);
+}
+
+
 double f0(double x, double nu) {
     double val;
     switch (dist) {
@@ -72,6 +85,9 @@ double f0(double x, double nu) {
             val = 2.0 * dt(x * qt(0.95, nu, 1, 0), nu, 0) * qt(0.95, nu, 1, 0);
             break;
         case 3:
+            val = dgpd(x * qgpd(0.9, nu), nu, 0) * qgpd(0.9, nu);
+            break;
+        case 4:
             val = dunif(x, -1.0, 1.0, 0);
             break;
         default:
@@ -88,6 +104,9 @@ double log_f0(double x, double nu) {
             val = log(2.0) + dt(x * qt(0.95, nu, 1, 0), nu, 1) + log(qt(0.95, nu, 1, 0));
             break;
         case 3:
+            val = dgpd(x * qgpd(0.9, nu), nu, 1) + log(qgpd(0.9, nu));
+            break;
+        case 4:
             val = dunif(x, -1.0, 1.0, 1);
             break;
         default:
@@ -104,6 +123,9 @@ double F0(double x, double nu) {
             val = 2.0 * (pt(x * qt(0.95, nu, 1, 0), nu, 1, 0) - 0.5);
             break;
         case 3:
+            val = pgpd(x * qgpd(0.9, nu), nu);
+            break;
+        case 4:
             val = punif(x, -1.0, 1.0, 1, 0);
             break;
         default:

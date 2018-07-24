@@ -1,7 +1,7 @@
-sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,length(y)), incr = 0.01, par = "prior", nknots = 6, hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)), prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3, blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S, fix.nu = FALSE, fbase = c("t", "t+", "unif"), verbose = TRUE){
+sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,length(y)), incr = 0.01, par = "prior", nknots = 6, hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)), prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3, blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S, fix.nu = FALSE, fbase = c("t", "t+", "gpd", "unif"), verbose = TRUE){
 	
-    fbase.choice <- match(fbase[1], c("t", "t+", "unif"))
-    if(is.na(fbase.choice)) stop("Only 't', 't+', or 'unif' is allowed for the choice of fbase")
+    fbase.choice <- match(fbase[1], c("t", "t+", "gpd", "unif"))
+    if(is.na(fbase.choice)) stop("Only 't', 't+', 'gpd' or 'unif' is allowed for the choice of fbase")
     if(fbase.choice == 1){
         log_f0 <- function(x, nu = Inf) return(dt(x*qt(.9, df = nu), df = nu, log = TRUE) + log(qt(.9, df = nu)))
         f0 <- function(x, nu = Inf) return(dt(x*qt(.9, df = nu), df = nu)*qt(.9, df = nu))
@@ -11,6 +11,11 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
         log_f0 <- function(x, nu = Inf) return(log(x > 0) * (log(2.0) + dt(x*qt(.95, df = nu), df = nu, log = TRUE) + log(qt(.95, df = nu))))
         f0 <- function(x, nu = Inf) return((x > 0) * 2.0 * dt(x*qt(.95, df = nu), df = nu)*qt(.95, df = nu))
         F0 <- function(x, nu = Inf) return((x > 0) * 2.0 * (pt(x*qt(.95, df = nu), df = nu) - 0.5))
+    } else if (fbase.choice == 3) {
+        if(any(y < 0)) stop("'gpd' base option may be used only for positive valued data")
+        log_f0 <- function(x, nu = 1) return(dgpd(x * qgpd(0.9, shape = 1/nu), shape = 1/nu, log = TRUE) + log(qgpd(0.9, shape = 1/nu)))
+        f0 <- function(x, nu = 1) return(dgpd(x * qgpd(0.9, shape = 1/nu), shape = 1/nu))
+        F0 <- function(x, nu = 1) return(pgpd(x * qgpd(0.9, shape = 1/nu), shape = 1/nu))
     } else {
         fix.nu <- 1
         log_f0 <- function(x, nu = Inf) return(dunif(x, -1,1, log = TRUE))
@@ -59,7 +64,7 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
     par <- rep(0, nknots+3)
     if(fix.nu) par[nknots+3] <- nuFn.inv(fix.nu)
     
-    if(fbase.choice == 2){
+    if(fbase.choice == 2 | fbase.choice == 3){
         if(blocking == "single3") {
             blocking <- "single2"
         } else if(substr(blocking, 1, 3) == "std") {
@@ -112,7 +117,7 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
 	
 	nblocks <- length(blocks)
 	if(fix.nu) for(j in 1:nblocks) blocks[[j]][nknots+3] <- FALSE
-    if(fbase.choice == 2) for(j in 1:nblocks) blocks[[j]][nknots+1] <- FALSE
+    if(fbase.choice == 2 | fbase.choice == 3) for(j in 1:nblocks) blocks[[j]][nknots+1] <- FALSE
 
 	
 	blocks.ix <- c(unlist(lapply(blocks, which))) - 1
