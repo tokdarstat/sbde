@@ -85,7 +85,7 @@ double s0(double nu){
             val = qt(0.95, nu, 1, 0);
             break;
         case 3:
-            val = 1.0; //qgpd(0.5, nu);
+            val = qgpd(0.5, nu);
             break;
         case 4:
             val = 1.0;

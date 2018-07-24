@@ -15,7 +15,7 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
         F0 <- function(x, nu = Inf) return((x > 0) * 2.0 * (pt(x*s0(nu), df = nu) - 0.5))
     } else if (fbase.choice == 3) {
         if(any(y < 0)) stop("'gpd' base option may be used only for positive valued data")
-        s0 <- function(nu = 1) return(1) ##return(qgpd(0.5, shape = 1/nu))
+        s0 <- function(nu = 1) return(qgpd(0.5, shape = 1/nu))
         log_f0 <- function(x, nu = 1) return(dgpd(x * s0(nu), shape = 1/nu, log = TRUE) + log(s0(nu)))
         f0 <- function(x, nu = 1) return(dgpd(x * s0(nu), shape = 1/nu) * s0(nu))
         F0 <- function(x, nu = 1) return(pgpd(x * s0(nu), shape = 1/nu))
