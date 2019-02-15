@@ -65,15 +65,53 @@ double nuFn_inv(double nu) {
 	return 2.0*log((nu - 0.5)/5.5);
 }
 
+double dgpd(double x, double nu, int in_log){
+    double val = -(nu + 1.0) * log1p(x/nu);
+    if(!in_log) val = exp(val);
+    return val;
+}
+double pgpd(double x, double nu){
+    return 1.0 - exp(-nu * log1p(x/nu));
+}
+double qgpd(double p, double nu){
+    return nu * expm1(-log1p(-p)/nu);
+}
+
+
+double s0(double nu){
+    double val;
+    switch(dist){
+        case 2:
+            val = qt(0.95, nu, 1, 0);
+            break;
+        case 3:
+            val = qgpd(0.5, nu);
+            break;
+        case 4:
+            val = 1.0;
+            break;
+        default:
+            val = qt(0.9, nu, 1, 0);
+            break;
+    }
+    return val;
+}
+
 double f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 0);
-        break;
+            val = 2.0 * dt(x * s0(nu), nu, 0) * s0(nu);
+            break;
+        case 3:
+            val = dgpd(x * s0(nu), nu, 0) * s0(nu);
+            break;
+        case 4:
+            val = dunif(x, -1.0, 1.0, 0);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 0) * qt(0.9, nu, 1, 0);
-        break;
+            val = dt(x * s0(nu), nu, 0) * s0(nu);
+            break;
     }
     return val;
 }
@@ -82,11 +120,17 @@ double log_f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 1);
-        break;
+            val = log(2.0) + dt(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
+        case 3:
+            val = dgpd(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
+        case 4:
+            val = dunif(x, -1.0, 1.0, 1);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 1) + log(qt(0.9, nu, 1, 0));
-        break;
+            val = dt(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
     }
     return val;
 }
@@ -95,10 +139,16 @@ double F0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
+            val = 2.0 * (pt(x * s0(nu), nu, 1, 0) - 0.5);
+            break;
+        case 3:
+            val = pgpd(x * s0(nu), nu);
+            break;
+        case 4:
             val = punif(x, -1.0, 1.0, 1, 0);
             break;
         default:
-            val = pt(x * qt(0.9, nu, 1, 0), nu, 1, 0);
+            val = pt(x * s0(nu), nu, 1, 0);
             break;
     }
     return val;
@@ -273,7 +323,7 @@ void SBDE(double *par, double *yVar, int *status, double *weights, double *hyper
 }
 
 
-void DEV(double *par, double *yVar, int *status, double *weights, double *hyper, int *dim, double *gridpars, double *tauG, double *devsamp, double *llsamp, double *pgsamp){
+void DEV(double *par, double *yVar, int *status, double *weights, double *hyper, int *dim, double *gridpars, double *tauG, double *devsamp, double *llsamp, double *pgsamp, int *distribution){
     
     int i, k, l;
     
@@ -281,6 +331,8 @@ void DEV(double *par, double *yVar, int *status, double *weights, double *hyper,
     n = dim[reach++]; p = 0; L = dim[reach++]; mid = dim[reach++];
     m = dim[reach++]; ngrid = dim[reach++]; nkap = dim[reach++];
     int niter = dim[reach++], npar = (m+1) + 2;
+    
+    dist = distribution[0];
     
     reach = 0;
     taugrid = tauG;
@@ -333,10 +385,11 @@ void DEV(double *par, double *yVar, int *status, double *weights, double *hyper,
 
 
 
-void PRED(double *par, double *yGrid, double *hyper, int *dim, double *gridpars, double *tauG, double *logdenssamp){
+void PRED(double *par, double *yGrid, double *hyper, int *dim, double *gridpars, double *tauG, double *logdenssamp, int *distribution){
     
     int i, k, l;
     
+    dist = distribution[0];
     int reach = 0;
     n = dim[reach++]; p = 0; L = dim[reach++]; mid = dim[reach++];
     m = dim[reach++]; ngrid = dim[reach++]; nkap = dim[reach++];

@@ -13,7 +13,7 @@ S3method(update, sbde)
 S3method(predict, sbde)
 
 # Import all packages listed as Imports or Depends
-import(stats, graphics, grDevices)
+import(stats, graphics, grDevices, evd)
 importFrom(Matrix, bdiag)
 importFrom(coda, geweke.diag)
 importFrom(coda, as.mcmc)

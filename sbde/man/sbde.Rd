@@ -11,7 +11,7 @@ sbde(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)),
     hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)),
     prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3,
     blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S,
-    fix.nu = FALSE, fbase = c("t", "unif"), verbose = TRUE)
+    fix.nu = FALSE, fbase = c("t", "t+", "gpd", "unif"), verbose = TRUE)
 
 
 \method{update}{sbde}(object, nadd, append = TRUE, ...)
@@ -35,7 +35,7 @@ sbde(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)),
 \item{blocks.mu}{initial block specific means in the form of  a list. If left unspecified then will be automatically generated as a list of vectors of zeros of appropriate lengths matching the corresponding block sizes.}
 \item{blocks.S}{initial block specific covariance matrices in the form of a list. If left unspecified then will be automatically generated as a list of identity matrices of appropriate dimensions matching the corresponding block sizes. When \code{blocking} is chosen as one of the menu items of the form "std*", known prior covariance information and estimated variance matrices from \code{\link{rq}} are used.}
 \item{fix.nu}{either the logical FALSE indicating that nu should be learned, or a positive real number giving the fixed value of nu, which is then excluded from MCMC updates}
-\item{fbase}{either "t" (default) or "unif" to indicate what base distribution is to be used.}
+\item{fbase}{either "t" (default) or "t+" (for half-t distributions on the positive real lines) or "gpd" (for generalized pareto distributions with location zero and parametrized by nu = 1 / shape) or  "unif" to indicate what base distribution is to be used.}
 \item{verbose}{logical indicating whether MCMC progress should be printed, defaults to TRUE}
 \item{object}{a fitted model of the class 'qde'.}
 \item{nadd}{number of additional MCMC samples.}

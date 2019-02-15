@@ -12,8 +12,8 @@ extern void PRED(double *, double *, double *, int *, double *, double *, double
 
 static const R_CMethodDef CEntries[] = {
     {"SBDE", (DL_FUNC) &SBDE, 18},
-    {"DEV",  (DL_FUNC) &DEV,  11},
-    {"PRED", (DL_FUNC) &PRED,  7},
+    {"DEV",  (DL_FUNC) &DEV,  12},
+    {"PRED", (DL_FUNC) &PRED,  8},
     {NULL, NULL, 0}
 };
 
