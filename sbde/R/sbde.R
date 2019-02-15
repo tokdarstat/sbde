@@ -1,27 +1,66 @@
-sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,length(y)), incr = 0.01, par = "prior", nknots = 6, hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)), prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3, blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S, fix.nu = FALSE, fbase = c("t", "unif"), verbose = TRUE){
+sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), 
+                 wt = rep(1,length(y)), incr = 0.01, par = "prior", nknots = 6, 
+                 hyper = list(sig = c(.1,.1), lam = c(6,4), kap = c(0.1,0.1,1)), 
+                 prox.range = c(.2,.95), acpt.target = 0.15, ref.size = 3, 
+                 blocking = "single", temp = 1, expo = 2, blocks.mu, blocks.S, 
+                 fix.nu = FALSE, fbase = c("t", "t+", "gpd", "unif"), verbose = TRUE){
 	
-    fbase.choice <- match(fbase[1], c("t", "unif"))
-    if(is.na(fbase.choice)) stop("Only 't' or 'unif' is allowed for the choice of fbase")
+    fbase.choice <- match(fbase[1], c("t", "t+", "gpd", "unif"))
+    if(is.na(fbase.choice)) stop("Only 't', 't+', 'gpd' or 'unif' is allowed for the choice of fbase")
     if(fbase.choice == 1){
-        log_f0 <- function(x, nu = Inf) return(dt(x*qt(.9, df = nu), df = nu, log = TRUE) + log(qt(.9, df = nu)))
-        f0 <- function(x, nu = Inf) return(dt(x*qt(.9, df = nu), df = nu)*qt(.9, df = nu))
-        F0 <- function(x, nu = Inf) return(pt(x*qt(.9, df = nu), df = nu))
+        s0 <- function(nu = Inf) return(qt(0.9, df = nu))
+        log_f0 <- function(x, nu = Inf) return(dt(x*s0(nu), df = nu, log = TRUE) + log(s0(nu)))
+        f0 <- function(x, nu = Inf) return(dt(x * s0(nu), df = nu) * s0(nu))
+        F0 <- function(x, nu = Inf) return(pt(x * s0(nu), df = nu))
+    } else if (fbase.choice == 2) {
+        if(any(y < 0)) stop("'t+' base option may be used only for positive valued data")
+        s0 <- function(nu = Inf) return(qt(0.95, df = nu))
+        log_f0 <- function(x, nu = Inf) return(log(x > 0) * (log(2.0) + dt(x * s0(nu), df = nu, log = TRUE) + log(s0(nu))))
+        f0 <- function(x, nu = Inf) return((x > 0) * 2.0 * dt(x*s0(nu), df = nu)*s0(nu))
+        F0 <- function(x, nu = Inf) return((x > 0) * 2.0 * (pt(x*s0(nu), df = nu) - 0.5))
+    } else if (fbase.choice == 3) {
+        if(any(y < 0)) stop("'gpd' base option may be used only for positive valued data")
+        s0 <- function(nu = 1) return(qgpd(0.5, shape = 1/nu))
+        log_f0 <- function(x, nu = 1) return(dgpd(x * s0(nu), shape = 1/nu, log = TRUE) + log(s0(nu)))
+        f0 <- function(x, nu = 1) return(dgpd(x * s0(nu), shape = 1/nu) * s0(nu))
+        F0 <- function(x, nu = 1) return(pgpd(x * s0(nu), shape = 1/nu))
     } else {
         fix.nu <- 1
+        s0 <- function(nu = Inf) return(1)
         log_f0 <- function(x, nu = Inf) return(dunif(x, -1,1, log = TRUE))
         f0 <- function(x, nu = Inf) return(dunif(x, -1,1))
         F0 <- function(x, nu = Inf) return(punif(x, -1,1))
     }
-    base.bundle <- list(log_f0 = log_f0, f0 = f0, F0 = F0)
+    base.bundle <- list(log_f0 = log_f0, f0 = f0, F0 = F0, s0 = s0)
     
     n <- length(y)
-    tau.g <- seq(0, 1, incr)
-    L <- length(tau.g)
-    mid <- which.min(abs(tau.g - 0.5))
-	
-	tau.kb <- seq(0,1,len = nknots) 
-	tau.k <- tau.kb
-    delta <- tau.g[2]
+    #tau.g <- seq(0, 1, incr)
+    #L <- length(tau.g)
+    #mid <- which.min(abs(tau.g - 0.5))
+    
+    # Added this chunk
+    Ltail <- ceiling(2*log(n,2) + log(incr,2))
+    if(Ltail > 0){
+      tau.tail <- incr / 2^(Ltail:1)
+      tau.g <- c(0, tau.tail, seq(incr, 1 - incr, incr), 1 - tau.tail[Ltail:1], 1)
+      L <- length(tau.g); mid <- which.min(abs(tau.g - 0.5)); reg.ix <- (1:L)[-c(1 + 1:Ltail, L - 1:Ltail)]
+    } else {
+      tau.g <- seq(0, 1, incr)
+      L <- length(tau.g); mid <- which.min(abs(tau.g - 0.5)); reg.ix <- (1:L)
+    }
+    # Finish of addition
+    
+    # Original declaration of knots
+    tau.kb <- seq(0,1,len = nknots)
+    tau.k <- tau.kb
+    
+    # ON HOLD FOR NOW. THIS IS CODE TO CHANGE THE KNOT PLACEMENT
+    # What if they were spaced differently according to where the grid is?
+    # Let's give it a try
+    #which.tau <- seq(1,L,length=nknots)
+    #which.tau <- ifelse(which.tau>mid, ceiling(which.tau), floor(which.tau))
+    #tau.kb <- tau.g[which.tau]
+    #tau.k <- tau.kb
     tau.0 <- tau.g[mid]
 	
 	a.sig <- hyper$sig; if(is.null(a.sig)) a.sig <- c(.1, .1)
@@ -51,9 +90,14 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
 	niter <- nsamp * thin
 	dimpars <- c(n, L, mid - 1, nknots, ngrid, ncol(a.kap), niter, thin, nsamp)
 	
-    par <- rep(0, nknots+3)
+    if(par == "prior") par <- rep(0, nknots+3)
     if(fix.nu) par[nknots+3] <- nuFn.inv(fix.nu)
     
+    if(fbase.choice == 2 | fbase.choice == 3){
+        if(substr(blocking, 1, 3) == "std") {
+            blocking <- "std1"
+        }
+    }
 	npar <- nknots+3
 	if(blocking == "single"){
 		blocks <- list(rep(TRUE, npar))
@@ -62,9 +106,9 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
 		blocks[[2]][nknots + 1:3] <- TRUE
 	} else if(blocking == "single3"){
 		blocks <- list(rep(TRUE, npar), rep(FALSE, npar), rep(FALSE, npar))
-		blocks[[2]][nknots + 1] <- TRUE
-		blocks[[3]][nknots + 1 + 1:2] <- TRUE
-    } else if(blocking == "std0"){ # same as single
+        blocks[[2]][1:nknots] <- TRUE
+		blocks[[3]][nknots + 1:3] <- TRUE
+    } else if(blocking == "std0"){ # same as single2
         blocks <- list(rep(TRUE, npar), rep(FALSE, npar))
         blocks[[2]][nknots + 1:3] <- TRUE
     } else if(blocking == "std1"){ # same as single2
@@ -100,6 +144,8 @@ sbde <- function(y, nsamp = 1e3, thin = 10, cens = rep(0,length(y)), wt = rep(1,
 	
 	nblocks <- length(blocks)
 	if(fix.nu) for(j in 1:nblocks) blocks[[j]][nknots+3] <- FALSE
+    if(fbase.choice == 2 | fbase.choice == 3) for(j in 1:nblocks) blocks[[j]][nknots+1] <- FALSE
+
 	
 	blocks.ix <- c(unlist(lapply(blocks, which))) - 1
 	blocks.size <- sapply(blocks, sum)
@@ -180,15 +226,17 @@ update.sbde <- function(object, nadd, append = TRUE, ...){
 coef.sbde <- function(object, burn.perc = 0.5, nmc = 200, reduce = TRUE, ...){
     niter <- object$dim[7]
     nsamp <- object$dim[9]
+    fbase.choice <- object$fbase.choice
     pars <- matrix(object$parsamp, ncol = nsamp)
     ss <- unique(round(nsamp * seq(burn.perc, 1, len = nmc + 1)[-1]))
     
     n <- object$dim[1]; p <- 0; L <- object$dim[2]; mid <- object$dim[3] + 1; nknots <- object$dim[4]; ngrid <- object$dim[5]
 
     parametric.list <- list(gam0 = pars[nknots + 1,ss], sigma = sigFn(pars[nknots + 2,ss], a.sig), nu = nuFn(pars[nknots + 3,ss]))
-    gamsignu <- t(sapply(parametric.list, quantile, pr = c(0.5, 0.025, 0.975)))
+    parix <- switch(fbase.choice,"1" = c(1:3), "2" = c(2:3), "3" = c(2:3), "4" = c(1:3))
+    gamsignu <- t(sapply(parametric.list[parix], quantile, pr = c(0.5, 0.025, 0.975)))
     dimnames(gamsignu)[[2]] <- c("Estimate", "Lo95%", "Up95%")
-    invisible(list(parametric = gamsignu))
+    invisible(list(parametric = gamsignu, samp=do.call("cbind",parametric.list[parix])))
 }
 
 summary.sbde <- function(object, ntrace = 1000, burn.perc = 0.5, plot.dev = TRUE, more.details = FALSE, ...){
@@ -201,7 +249,7 @@ summary.sbde <- function(object, ntrace = 1000, burn.perc = 0.5, plot.dev = TRUE
     dimpars[7] <- length(ss)
     
     n <- object$dim[1]; p <- 0; ngrid <- object$dim[5]
-    sm <- .C("DEV", pars = as.double(pars[,ss]), y = as.double(object$y), cens = as.integer(object$cens), wt = as.double(object$wt), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), devsamp = double(length(ss)), llsamp = double(length(ss)*n), pgsamp = double(length(ss)*ngrid))
+    sm <- .C("DEV", pars = as.double(pars[,ss]), y = as.double(object$y), cens = as.integer(object$cens), wt = as.double(object$wt), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), devsamp = double(length(ss)), llsamp = double(length(ss)*n), pgsamp = double(length(ss)*ngrid), dist = as.integer(object$fbase.choice))
     deviance <- sm$devsamp
     ll <- matrix(sm$llsamp, ncol = length(ss))
     fit.waic <- waic(ll[,post.burn])
@@ -262,9 +310,44 @@ predict.sbde <- function(object, burn.perc = 0.5, nmc = 200, yRange = range(obje
     n <- object$dim[1]; p <- 0; ngrid <- object$dim[5]
     dimpars[1] <- yLength
     
-    pred <- .C("PRED", pars = as.double(pars[,ss]), yGrid = as.double(yGrid), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), ldenssamp = double(length(ss)*yLength))
+    pred <- .C("PRED", pars = as.double(pars[,ss]), yGrid = as.double(yGrid), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), ldenssamp = double(length(ss)*yLength), dist = as.integer(object$fbase.choice))
     dens <- matrix(exp(pred$ldenssamp), ncol = length(ss))
     return(list(y = yGrid, fsamp = dens, fest = t(apply(dens, 1, quantile, pr = c(.025, .5, .975)))))
+}
+
+quantile.sbde <- function(p, object, burn.perc = 0.5, nmc = 200){
+  tgrid <- p
+  thin <- object$dim[8]
+  nsamp <- object$dim[9]
+  pars <- matrix(object$parsamp, ncol = nsamp)
+  ss <- unique(round(nsamp * seq(burn.perc, 1, len = nmc + 1)[-1]))
+  dimpars <- object$dim
+  dimpars[7] <- length(ss)
+  
+  n <- object$dim[1]; ngrid <- object$dim[5]
+  dimpars[1] <- length(tgrid)  # in C this is "n"
+  
+  qs <- .C("QUANT", pars = as.double(pars[,ss]), inPoints = as.double(tgrid), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), outsamp = double(length(ss)*length(tgrid)), fbase.choice = as.integer(object$fbase.choice), qlswitch = as.integer(0))
+  quants <- matrix(qs$outsamp, ncol = length(ss))
+  quantsEst <- t(apply(quants, 1, quantile, pr = c(0.5, 0.025, 0.975)))
+  dimnames(quantsEst)[[2]] <- c("Estimate", "Lo95%", "Up95%")
+  return(list(p = tgrid, Qsamp = quants, Qest = quantsEst))
+}
+
+quantlev.sbde <- function(object, burn.perc = 0.5, nmc = 200){
+  y <- object$y
+  thin <- object$dim[8]
+  nsamp <- object$dim[9]
+  pars <- matrix(object$parsamp, ncol = nsamp)
+  ss <- unique(round(nsamp * seq(burn.perc, 1, len = nmc + 1)[-1]))
+  dimpars <- object$dim  # first item is "n" the length of n
+  dimpars[7] <- length(ss)
+  
+  qls <- .C("QUANT", pars = as.double(pars[,ss]), inPoints = as.double(y), hyper = as.double(object$hyper), dim = as.integer(dimpars), gridmats = as.double(object$gridmats), tau.g = as.double(object$tau.g), outsamp = double(length(ss)*length(y)), fbase.choice = as.integer(object$fbase.choice), qlswitch = as.integer(1))
+  quantlevs <- matrix(qls$outsamp, ncol = length(ss))
+  quantlevEst <- t(apply(quantlevs, 1, quantile, pr = c(0.5, 0.025, 0.975)))
+  dimnames(quantlevEst)[[2]] <- c("Estimate", "Lo95%", "Up95%")
+  return(list(data = y, qlsamp = quantlevs, qlest = quantlevEst))
 }
 
 
@@ -345,3 +428,46 @@ proxFn <- function(prox.Max, prox.Min, kl.step = 1){
 transform.grid <- function(w, ticks, dists){
     return((1-dists) * w[ticks] + dists * w[ticks+1])
 }
+
+
+logsum <- function(lx) return(logmean(lx) + log(length(lx)))
+logmean <- function(lx) return(max(lx) + log(mean(exp(lx - max(lx)))))
+
+ppFn0 <- function(w.knot, gridmats, L, nknots, ngrid, a.kap){
+  w.grid <- matrix(NA, L, ngrid)
+  lpost.grid <- rep(NA, ngrid)
+  for(i in 1:ngrid){
+    A <- matrix(gridmats[1:(L*nknots),i], nrow = nknots)
+    R <- matrix(gridmats[L*nknots + 1:(nknots*nknots),i], nrow = nknots)
+    r <- sum(backsolve(R, w.knot, transpose = TRUE)^2)
+    w.grid[,i] <- colSums(A * w.knot)
+    lpost.grid[i] <- -(0.5*nknots+a.kap[1])*log1p(0.5*r/a.kap[2]) - gridmats[nknots*(L+nknots)+1,i] + gridmats[nknots*(L+nknots)+2,i]		
+  }
+  lpost.sum <- logsum(lpost.grid)
+  post.grid <- exp(lpost.grid - lpost.sum)
+  w <- c(w.grid %*% post.grid)
+  return(w = w)
+}
+
+logistify <- function(wgrid, taugrid, type="dens"){
+  L <- length(wgrid)
+  np_density <- exp(wgrid - max(wgrid))
+  np_cumu_density <- cumsum(diff(taugrid)*(np_density[-1] + np_density[-L])/2)
+  return(list(dens=np_density/np_cumu_density[L-1], cdf= np_cumu_density/np_cumu_density[L-1]))
+}
+
+nonpar.sbde <- function(object, burn.perc = 0.5, nmc = 200){
+  nsamp <- object$dim[9]; niter <- object$dim[7]
+  ngrid <- object$dim[5]; nknots <- object$dim[4]; L <- object$dim[2]
+  pars <- matrix(object$parsamp, ncol = nsamp)
+  ss <- unique(round(nsamp * seq(burn.perc, 1, len = nmc + 1)[-1])) # use for columns
+  wKnots <- pars[1:nknots,]
+  gridmats <- object$gridmats
+  akap <- object$hyper[3:4]
+  
+  wFull <- apply(wKnots[,ss], 2, function(f) ppFn0(f, gridmats, L, nknots, ngrid, akap))
+  w <- apply(wFull, 2, function(f) logistify(f, object$tau.g)$dens)
+  return(w)
+}
+
+
