@@ -1,5 +1,6 @@
 #include "R.h"
 #include "Rmath.h"
+#include "math.h"
 #include "R_ext/Applic.h"
 
 double log2(double x);
@@ -35,29 +36,34 @@ void adMCMC(int niter, int thin, int npar, double *par, double **mu, double ***S
 			double decay, int refresh, double *lm, double temp, int nblocks, int **blocks, int *blocks_size, 
 			int *refresh_counter, int verbose, int ticker, double lpFn(double *, double), 
 			double *parsamp, double *acptsamp, double *lpsamp);
-void transform_grid(double *w, double *v, int *ticks, double *dists);
-double part_trape(double target, double baseline, double a, double b, double Delta);
+void postQ(double *par, double *quantile, double *pg, int ql);
+
+double find_tau_lo(double target, double baseline, double a, double b, double taua, double taub);
+double find_cdf_lo(double target, double baseline, double a, double b, double taua, double taub);
+
 
 //global integers
-int n, p, L, mid, m, nkap, ngrid, shrink, dist;
+int n, p, L, mid, m, nkap, ngrid, shrink, dist, npred, qltype;
 
 //value assigned global constants
-double *taugrid, *akap, *bkap, *lpkap, asig, bsig, shrinkFactor, ***Agrid, ***Rgrid, *ldRgrid, *lpgrid, **x, *y, *wt;
+double *taugrid, *akap, *bkap, *lpkap, asig, bsig, shrinkFactor, ***Agrid, ***Rgrid, *ldRgrid, *lpgrid, **x, *y, *wt, *inpred;
 int *cens;
 
 //memory assigned global variables
 double *lb;
 double **wgrid, *llgrid, *zknot, *lw;
-double *w0, *np_density, *np_cumu_density, *gam;
+double *w0, *np_density, *np_cumu_density, *gam0;
 
+// Function enabling sampling on full real line although some parameters restricted to positive reals
+// Will be used for a and b as well as sig.
 double sigFn(double z){
-	//return sqrt(1.0 / qgamma(pnorm(z, 0.0, 1.0, 1, 1), asig, 1.0/bsig, 1, 1));	
 	return exp(z/2.0);
 } 	
 double sigFn_inv(double s) {
-	//return qnorm(pgamma(1.0 / s*s, asig, 1.0/bsig, 1, 1), 0.0, 1.0, 1, 1);
 	return 2.0*log(s);
 }
+
+// Function enabling sampling on full real line although some parameters restricted to positive reals
 double nuFn(double z)  {
 	return 0.5 + 5.5*exp(z/2.0);
 }
@@ -65,15 +71,63 @@ double nuFn_inv(double nu) {
 	return 2.0*log((nu - 0.5)/5.5);
 }
 
+double dgpd(double x, double nu, int in_log){
+    double val = -(nu + 1.0) * log1p(x/nu);
+    if(!in_log) val = exp(val);
+    return val;
+}
+double pgpd(double x, double nu){
+    return 1.0 - exp(-nu * log1p(x/nu));
+}
+double qgpd(double p, double nu){
+    return nu * expm1(-log1p(-p)/nu);
+}
+
+// A function to ensure that everything is between 0.000000000000001 and .999999999999999
+double unitFn(double u){
+  if(u < 1.0e-15) 
+    u = 1.0e-15;
+  else if(u > 1.0 - 1.0e-15)
+    u = 1.0 - 1.0e-15;
+  return u;
+}	
+
+
+double s0(double nu){
+    double val;
+    switch(dist){
+        case 2:
+            val = qt(0.95, nu, 1, 0);
+            break;
+        case 3:
+            val = qgpd(0.5, nu);
+            break;
+        case 4:
+            val = 1.0;
+            break;
+        default:
+            val = qt(0.9, nu, 1, 0);
+            break;
+    }
+    return val;
+}
+
+
 double f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 0);
-        break;
+            val = 2.0 * dt(x * s0(nu), nu, 0) * s0(nu);
+            break;
+        case 3:
+            val = dgpd(x * s0(nu), nu, 0) * s0(nu);
+            break;
+        case 4:
+            val = dunif(x, -1.0, 1.0, 0);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 0) * qt(0.9, nu, 1, 0);
-        break;
+            val = dt(x * s0(nu), nu, 0) * s0(nu);
+            break;
     }
     return val;
 }
@@ -82,11 +136,17 @@ double log_f0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
-        val = dunif(x, -1.0, 1.0, 1);
-        break;
+            val = log(2.0) + dt(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
+        case 3:
+            val = dgpd(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
+        case 4:
+            val = dunif(x, -1.0, 1.0, 1);
+            break;
         default:
-        val = dt(x * qt(0.9, nu, 1, 0), nu, 1) + log(qt(0.9, nu, 1, 0));
-        break;
+            val = dt(x * s0(nu), nu, 1) + log(s0(nu));
+            break;
     }
     return val;
 }
@@ -95,14 +155,40 @@ double F0(double x, double nu) {
     double val;
     switch (dist) {
         case 2:
+            val = 2.0 * (pt(x * s0(nu), nu, 1, 0) - 0.5);
+            break;
+        case 3:
+            val = pgpd(x * s0(nu), nu);
+            break;
+        case 4:
             val = punif(x, -1.0, 1.0, 1, 0);
             break;
         default:
-            val = pt(x * qt(0.9, nu, 1, 0), nu, 1, 0);
+            val = pt(x * s0(nu), nu, 1, 0);
             break;
     }
     return val;
 }
+
+double Q0(double u, double nu) {
+  double val;
+  switch (dist) {
+  case 2:
+    val = qt(0.5*unitFn(u) + 0.5, nu, 1, 0) /s0(nu);
+  break;
+  case 3:
+    val =  qgpd(unitFn(u), nu)/s0(nu);
+  break;
+  case 4:
+    val = qunif(u, -1.0, 1.0, 1, 0);
+  break;
+  default:
+    val = qt(unitFn(u), nu, 1, 0) /s0(nu);
+  break;
+  }
+  return val;
+}
+
 
 void trape(double *x, double *h, int n, double *c, int reverse){
 	int i, j = 0;
@@ -120,11 +206,27 @@ void trape(double *x, double *h, int n, double *c, int reverse){
 	}	
 }
 
+// This locate function works because of evenly spaced taugrid
 int locate(double u){
     int pos = floor((L - 1) * u);
     if(pos == L - 1) pos = L - 1;
     return pos;
 }
+
+// A recursive C program to find floor of x in a sorted 
+// array[low..high] (binary search algorithm) (taken from www.geeksforgeeks.org)
+
+int floorSearch(double arr[], int low, int high, double x){
+  if (low > high) return -1;  // If low and high cross each other
+  if (x>= arr[high]) return high; // If last element is smaller than x
+  int mid = (low + high)/2;  // Find the middle point
+  if(arr[mid] == x) return mid; // if middle point is floor.
+  if(mid > 0 && arr[mid-1] <= x && x < arr[mid]) return mid-1;
+  if(x < arr[mid]) return floorSearch(arr, low, mid-1,x); //If x is smaller than mid, floor must be in left half.
+  return floorSearch(arr, mid+1, high, x); //if mid-1 is not floor and x is greater than arr[mid]
+}
+
+
 
 double ppFn0(double *wknot, double *w, double *postgrid){
 	int i, l;
@@ -173,7 +275,8 @@ double logpostFn(double *par, double temp, int llonly, double *ll, double *pg){
             y_std = (y[i] - gam0) / sigma;
             y_trans = F0(y_std, nu);
             ll[i] = log_f0(y_std, nu) - log_sigma;
-            loc_grid = locate(y_trans);
+            
+            loc_grid = floor(floorSearch(taugrid,0,L-1,y_trans));
             ll[i] += log(((taugrid[loc_grid + 1] - y_trans) * np_density[loc_grid] + (y_trans - taugrid[loc_grid]) * np_density[loc_grid + 1])/(taugrid[loc_grid+1] - taugrid[loc_grid]));
         }
     }
@@ -273,14 +376,15 @@ void SBDE(double *par, double *yVar, int *status, double *weights, double *hyper
 }
 
 
-void DEV(double *par, double *yVar, int *status, double *weights, double *hyper, int *dim, double *gridpars, double *tauG, double *devsamp, double *llsamp, double *pgsamp){
+void DEV(double *par, double *yVar, int *status, double *weights, double *hyper, int *dim, double *gridpars, double *tauG, double *devsamp, double *llsamp, double *pgsamp, int *distribution){
     
     int i, k, l;
     
     int reach = 0;
     n = dim[reach++]; p = 0; L = dim[reach++]; mid = dim[reach++];
     m = dim[reach++]; ngrid = dim[reach++]; nkap = dim[reach++];
-    int niter = dim[reach++], npar = (m+1) + 2;
+    dist = distribution[0];
+    int niter = dim[reach++], npar = m + 3;
     
     reach = 0;
     taugrid = tauG;
@@ -331,16 +435,15 @@ void DEV(double *par, double *yVar, int *status, double *weights, double *hyper,
 }
 
 
-
-
-void PRED(double *par, double *yGrid, double *hyper, int *dim, double *gridpars, double *tauG, double *logdenssamp){
+void PRED(double *par, double *yGrid, double *hyper, int *dim, double *gridpars, double *tauG, double *logdenssamp, int *distribution){
     
     int i, k, l;
     
+    dist = distribution[0];
     int reach = 0;
     n = dim[reach++]; p = 0; L = dim[reach++]; mid = dim[reach++];
     m = dim[reach++]; ngrid = dim[reach++]; nkap = dim[reach++];
-    int niter = dim[reach++], npar = (m+1) + 2;
+    int niter = dim[reach++], npar = m + 3;
     
     reach = 0;
     taugrid = tauG;
@@ -390,6 +493,136 @@ void PRED(double *par, double *yGrid, double *hyper, int *dim, double *gridpars,
         reach += npar; reach2 += n; reach3 += ngrid;
     }
 }
+
+// Function to find posterior quantiles of interest. Modified from the lgPostFn
+void postQ(double *par, double *output, double *pg, int ql){
+  
+  int i, l, reach = 0;
+  
+  double lps0dummy;
+  lps0dummy = ppFn0(par, w0, pg); // using this to get w0, not for log posterior contribution
+  reach += m;
+  
+  double w0max = vmax(w0, L);
+  for(l = 0; l < L; l++) np_density[l] = exp(w0[l] - w0max);
+  trape(np_density, taugrid, L, np_cumu_density, 0);
+  double totmass = np_cumu_density[L-1];
+  for(l = 0; l < L; l++) np_density[l] /= totmass;
+  for(l = 0; l < L; l++) np_cumu_density[l] /= totmass;
+  
+  double gam0 = par[reach++];
+  double sigma = sigFn(par[reach++]);
+  double nu = nuFn(par[reach++]);
+  
+  if( ql==1){ // Case where we input data and get out predicted quantile levels
+      for(i = 0; i < npred; i++){  
+        double y_trans;
+        int loc_in = mid;
+        y_trans = F0((inpred[i] - gam0) / sigma, nu);
+        loc_in = floor(floorSearch(taugrid,0,L-1,y_trans));
+        output[i] = find_cdf_lo(y_trans, np_cumu_density[loc_in], np_density[loc_in], np_density[loc_in + 1], taugrid[loc_in], taugrid[loc_in + 1]);
+      }
+    } else { // Case where we input p and get out predicted quantiles
+        for(i = 0; i < npred; i++){  
+          double p_trans;
+          int loc_in = mid;
+          // Find p_trans = the quantile within the non-parametric distribution. Use it to get the quantile within the semi-parametric density.
+          loc_in = floor(floorSearch(np_cumu_density,0,L-1,inpred[i]));
+          p_trans = find_tau_lo(inpred[i], np_cumu_density[loc_in], np_density[loc_in], np_density[loc_in + 1], taugrid[loc_in], taugrid[loc_in + 1]);
+          output[i] = Q0(p_trans, nu)*sigma + gam0;
+        }
+    }
+  }
+
+// Locates value "target" (in relation to baseline). Uses quadratic polynomial to approximate H.
+// Employs constraint such that 'a' and 'b' are derivative of H at lower and upper delta bounds.
+// And baseline is F(taua)
+double find_tau_lo(double target, double baseline, double a, double b, double taua, double taub){
+  double loc, Delta = taub - taua;
+  if (fabs(b-a)>1.0e-15){
+    loc = ((b*taua - a*taub) + sqrt(a*a * Delta*Delta + 2*Delta*(b-a)*(target - baseline)))/(b-a);
+  } else { // when slopes equal, linear interpolant
+    loc = taua + (target - baseline)/a;
+  }
+  return(loc);
+}
+
+// Returns quadratic interpolant of H at desired "target" location. (Inverse of find_tau_lo)
+// Employs constraint such that 'a' and 'b' are derivative of H at lower and upper delta bounds.
+// And baseline is H(taua)
+double find_cdf_lo(double target, double baseline, double a, double b, double taua, double taub){
+  double cdf;
+  if (fabs(b-a)>1.0e-15){
+    cdf = baseline + (target - taua)*(a*taub - b*taua)/(taub - taua) + 0.5*(pow(target,2) - pow(taua,2))*(b - a)/(taub - taua);
+  } else { // when slopes equal, linear interpolant
+    cdf = baseline + (target - taua)*a;
+  }
+  return(cdf);
+}
+
+
+
+
+void QUANT(double *par, double *inPoints, double *hyper, int *dim, double *gridpars, double *tauG, double *outsamp, int *distribution, int *qlswitch){
+  
+  int i, k, l;
+  
+  int reach = 0;
+  npred = dim[reach++]; //functioning as length of inPoints (pgrid for quantiles or data length for quantile levels)
+  p = 0; L = dim[reach++]; mid = dim[reach++];
+  m = dim[reach++]; ngrid = dim[reach++]; nkap = dim[reach++];
+  dist = distribution[0];
+  int niter = dim[reach++], npar = m + 3;
+  
+  reach = 0;
+  taugrid = tauG;
+  asig = hyper[0]; bsig = hyper[1];
+  akap = vect(nkap); bkap = vect(nkap); lpkap = vect(nkap);
+  for(reach = 2, i = 0; i < nkap; i++){
+    akap[i] = hyper[reach++];
+    bkap[i] = hyper[reach++];
+    lpkap[i] = hyper[reach++];
+  }
+  
+  reach = 0;
+  Agrid = (double ***)R_alloc(ngrid, sizeof(double **));
+  Rgrid = (double ***)R_alloc(ngrid, sizeof(double **));
+  ldRgrid = vect(ngrid);
+  lpgrid = vect(ngrid);
+  
+  for(i = 0; i < ngrid; i++){
+    Agrid[i] = mymatrix(L, m);
+    for(l = 0; l < L; l++) for(k = 0; k < m; k++) Agrid[i][l][k] = gridpars[reach++];
+    
+    Rgrid[i] = mymatrix(m, m);
+    for(k = 0; k < m; k++) for(l = 0; l < m; l++) Rgrid[i][l][k] = gridpars[reach++];
+    
+    ldRgrid[i] = gridpars[reach++];
+    lpgrid[i] = gridpars[reach++];
+  }
+  
+  inpred = inPoints;
+  qltype = qlswitch[0];
+  
+  lb = vect(10);
+  wgrid = mymatrix(ngrid, L);
+  lw = vect(nkap);
+  llgrid = vect(ngrid);
+  zknot = vect(m);
+  w0 = vect(L);
+  np_density = vect(L);
+  np_cumu_density = vect(L);
+  
+  reach = 0;
+  double *pgdummy = vect(ngrid);
+  int iter, reach2 = 0, reach3 = 0;
+  for(iter = 0; iter < niter; iter++){
+    postQ(par + reach, outsamp + reach2, pgdummy, qltype);
+    reach += npar; reach2 += npred; reach3 += ngrid;
+  }
+}
+
+
 
 
 // ------ mydefs ------ //
@@ -937,12 +1170,4 @@ void adMCMC(int niter, int thin, int npar, double *par, double **mu, double ***S
 }
 
 
-void transform_grid(double *w, double *v, int *ticks, double *dists){
-    int l;
-    for(l = 0; l < L; l++) v[l] = (1.0 - dists[l]) * w[ticks[l]] + dists[l] * w[ticks[l]+1];
-}
 
-double part_trape(double target, double baseline, double a, double b, double Delta){
-    double h = (-a*Delta + sqrt(a*a * Delta*Delta + 2.0*Delta*(b-a)*(target - baseline)))/((b-a)*Delta);
-    return ((1.0 - h)*a + h*b);
-}
