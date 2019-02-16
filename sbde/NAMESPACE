@@ -3,7 +3,10 @@ useDynLib("sbde", .registration = TRUE)
 export(
   sbde,
   getBands,
-  waic
+  waic,
+  predict.sbde,
+  quantile.sbde,
+  quantlev.sbde
 )
 
 S3method(update, sbde)
@@ -11,6 +14,8 @@ S3method(summary, sbde)
 S3method(coef, sbde)
 S3method(update, sbde)
 S3method(predict, sbde)
+S3method(quantile, sbde)
+#S3method(quantlev, sbde)
 
 # Import all packages listed as Imports or Depends
 import(stats, graphics, grDevices, evd)
