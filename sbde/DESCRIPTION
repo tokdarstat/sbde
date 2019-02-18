@@ -1,9 +1,9 @@
 Package: sbde
-Version: 0.0-3
-Date: 2018-3-21
+Version: 0.0-5
+Date: 2019-02-06
 Title: Semiparametric Bayesian Density Estimation
-Author: Surya Tokdar <tokdar@stat.duke.edu>
-Maintainer: Surya Tokdar <tokdar@stat.duke.edu>
+Author: Surya Tokdar <tokdar@duke.edu> and Erika Cunningham <erika.ball@duke.edu>
+Maintainer: Surya Tokdar <tokdar@duke.edu> and Erika Cunningham <erika.ball@duke.edu>
 Depends: R (>= 2.6), stats, graphics, grDevices, quantreg, evd
 Imports: splines, coda, Matrix, kernlab
 Description: Transformation based semiparametric density estimation for possibly heavy tailed data
